@@ -63,13 +63,35 @@ export default function EDAPage() {
 
         setLoadingStates(prev => ({ ...prev, insights: true }));
 
-
-
         try {
-            setAiInsights("⚠️ AI insights will appear here (LLM integration pending).");
+            // Basic local insight generation (works without backend/OpenAI key)
+            const numericCount = dataSummary.columns.filter(col => col.type === 'numeric').length;
+            const categoricalCount = dataSummary.columns.filter(col => col.type === 'categorical').length;
+            const missingColumns = dataSummary.columns.filter(col => col.missingCount > 0);
+
+            let insightLines = [];
+            insightLines.push(`- Dataset has **${dataSummary.rowCount.toLocaleString()} rows** and **${dataSummary.columnCount} columns**.`);
+            insightLines.push(`- Numeric columns: **${numericCount}**; categorical columns: **${categoricalCount}**.`);
+            if (missingColumns.length > 0) {
+                insightLines.push(`- Missing values found in ${missingColumns.length} column(s): ${missingColumns.map(c => c.name).join(', ')}.`);
+            } else {
+                insightLines.push('- No missing values detected.');
+            }
+
+            const topNumeric = dataSummary.columns
+                .filter(col => col.type === 'numeric')
+                .sort((a, b) => (a.missingCount - b.missingCount))
+                .slice(0, 3)
+                .map(col => `${col.name} (mean ${col.mean ?? 'n/a'})`);
+            if (topNumeric.length) {
+                insightLines.push(`- Key numeric columns: ${topNumeric.join(', ')}.`);
+            }
+
+            setAiInsights(insightLines.join('\n'));
         } catch (error) {
             toast.error('Failed to generate insights');
             console.error(error);
+            setAiInsights('Failed to generate insights.');
         } finally {
             setLoadingStates(prev => ({ ...prev, insights: false }));
         }
@@ -80,13 +102,34 @@ export default function EDAPage() {
 
         setLoadingStates(prev => ({ ...prev, recommendations: true }));
 
-
-
         try {
-            setAiInsights("⚠️ AI insights will appear here (LLM integration pending).");
+            const preprocessing = [];
+            preprocessing.push(`- Consider using **train/test split, standard scaling, and one-hot encoding** for your data preprocessing.`);
+            preprocessing.push(`- Check for duplicate rows and inconsistent missing value encoding (e.g., "NA", "N/A", "?").`);
+
+            const models = [];
+            if (dataSummary.columns.some(col => col.type === 'numeric')) {
+                models.push('- For numeric targets, try **RandomForestRegressor** or **XGBRegressor** (if available).');
+            }
+            if (dataSummary.columns.some(col => col.type === 'categorical')) {
+                models.push('- For classification targets, consider **RandomForestClassifier** or **LogisticRegression** with one-hot encoding.');
+            }
+
+            if (dataSummary.columns.length >= 5) {
+                preprocessing.push('- Perform **PCA** or **feature selection** to reduce dimensionality for large column sets.');
+            }
+
+            setMlRecommendations({
+                models: models.length ? models.join('\n') : 'No specific model recommendation available for this dataset composition.',
+                preprocessing: preprocessing.join('\n'),
+            });
         } catch (error) {
             toast.error('Failed to generate recommendations');
             console.error(error);
+            setMlRecommendations({
+                models: 'Failed to generate model recommendations.',
+                preprocessing: 'Failed to generate preprocessing recommendations.',
+            });
         } finally {
             setLoadingStates(prev => ({ ...prev, recommendations: false }));
         }
@@ -97,13 +140,15 @@ export default function EDAPage() {
 
         setLoadingStates(prev => ({ ...prev, code: true }));
 
-
-
         try {
-            setAiInsights("⚠️ AI insights will appear here (LLM integration pending).");
+            const sampleColumns = dataSummary.columns.slice(0, 4).map(c => c.name);
+            const codeSnippet = `import pandas as pd\n\n# Load CSV data\ndf = pd.read_csv('your-file.csv')\n\n# Basic information\nprint(df.shape)\nprint(df.dtypes)\n\n# Handle missing values\ndf = df.dropna()\n\n# Example feature/target setup\nX = df[[${sampleColumns.map(c => `'${c}'`).join(', ')}]]\ny = df['${dataSummary.columns[0].name}']${dataSummary.columns[0]?.type === 'numeric' ? '' : ' # replace with target'}\n\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.ensemble import RandomForest${dataSummary.columns[0]?.type === 'numeric' ? 'Regressor' : 'Classifier'}\n\nX_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)\nmodel = RandomForest${dataSummary.columns[0]?.type === 'numeric' ? 'Regressor' : 'Classifier'}(n_estimators=100, random_state=42)\nmodel.fit(X_train, y_train)\nprint('score:', model.score(X_test, y_test))`;
+
+            setPythonCode(codeSnippet);
         } catch (error) {
             toast.error('Failed to generate code');
             console.error(error);
+            setPythonCode('Failed to generate Python code.');
         } finally {
             setLoadingStates(prev => ({ ...prev, code: false }));
         }
