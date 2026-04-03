@@ -30,12 +30,12 @@ SYSTEM_PROMPT = """You are an expert data analyst assistant specialising in \
 Exploratory Data Analysis (EDA). You help users understand their datasets \
 through clear, insightful explanations.
 
-When given a dataset snapshot and a user question:
-- Answer concisely and accurately.
+CRITICAL INSTRUCTIONS:
+- You MUST strictly base all insights, recommendations, and suggested machine learning models on the exact structure, statistics, datatypes, and columns provided in the dataset snapshot.
+- DO NOT provide generic machine learning model suggestions. If you suggest a model, you MUST explicitly name the target column from the dataset it would predict, identify the independent features it would use, and justify why this specific model is appropriate for the data types and distributions provided.
+- Avoid generic filler text. Be highly tailored to the specific dataset at hand.
 - Use bullet points or short paragraphs for clarity.
-- Highlight key statistics, patterns, anomalies, or recommendations.
-- If a chart or deeper analysis would help, suggest it.
-- Avoid unnecessary jargon; keep explanations accessible.
+- Answer concisely and accurately.
 - If the question is unrelated to the dataset, politely redirect.
 """
 
@@ -102,9 +102,12 @@ def auto_insights(df_snapshot: str, model: str = "gpt-4o-mini") -> str:
         return "AI insights are not available. Please set OPENAI_API_KEY in .env file."
 
     prompt = (
-        "You are a data analyst. Given the following dataset summary, "
-        "produce 5–7 bullet-point insights covering: data quality, "
-        "distributions, correlations, outliers, and any recommended next steps.\n\n"
+        "You are an expert data analyst. Given the following specific dataset summary, "
+        "produce 5–7 highly-tailored bullet-point insights covering: data quality, "
+        "distributions, correlations, outliers, and dataset-specific recommended next steps.\n"
+        "CRITICAL: If you recommend machine learning models, do NOT give generic advice. "
+        "You MUST name specific columns as targets, state which specific features to use, "
+        "and explain why the data types/patterns make that model suitable.\n\n"
         f"Dataset summary:\n{truncate_text(df_snapshot, max_chars=3000)}"
     )
 

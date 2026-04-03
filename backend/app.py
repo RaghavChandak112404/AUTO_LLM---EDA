@@ -25,6 +25,7 @@ from visualization import (
     box_plots_grid,
 )
 from llm_helper import chat_with_eda, auto_insights, suggest_visualisations
+from ml_trainer import train_model
 
 # ── App setup ──────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -63,6 +64,9 @@ class ChartRequest(BaseModel):
     x_col: str | None = None
     y_col: str | None = None
     color_col: str | None = None
+
+class MLTrainRequest(BaseModel):
+    target_column: str
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -173,6 +177,22 @@ def chart_scatter(x_col: str, y_col: str, color_col: str | None = None):
 def chart_boxplots():
     df = _require_df()
     return JSONResponse(content=box_plots_grid(df))
+
+
+# ── ML endpoints ─────────────────────────────────────────────────────────
+
+@app.post("/ml/train", tags=["ML"])
+def ml_train(req: MLTrainRequest):
+    """Train a simple ML model (Random Forest) on the uploaded dataset."""
+    df = _require_df()
+    try:
+        results = train_model(df, req.target_column)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Model training error: {exc}")
+    
+    return JSONResponse(content=results)
 
 
 # ── LLM endpoints ─────────────────────────────────────────────────────────

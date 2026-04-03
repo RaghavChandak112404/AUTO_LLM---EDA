@@ -49,6 +49,23 @@ export default function DataVisualizations({ data }) {
   const [activeTab, setActiveTab] = useState("distribution");
   const [selectedNumeric, setSelectedNumeric] = useState(numericColumns[0] || "");
   const [selectedCategorical, setSelectedCategorical] = useState(categoricalColumns[0] || "");
+  const [correlationImg, setCorrelationImg] = useState(null);
+  const [isFetchingCorrelation, setIsFetchingCorrelation] = useState(false);
+
+  React.useEffect(() => {
+    if (activeTab === "correlation" && !correlationImg) {
+      setIsFetchingCorrelation(true);
+      fetch("http://localhost:8000/chart/correlation")
+        .then((res) => res.json())
+        .then((resp) => {
+          if (resp && resp.type === "image") {
+            setCorrelationImg(`data:image/png;base64,${resp.data}`);
+          }
+        })
+        .catch((err) => console.error("Failed to load correlation heatmap", err))
+        .finally(() => setIsFetchingCorrelation(false));
+    }
+  }, [activeTab, correlationImg]);
 
   const histogramData = useMemo(() => {
     if (!selectedNumeric) return [];
@@ -211,15 +228,21 @@ export default function DataVisualizations({ data }) {
 
       {/* Correlation */}
       {activeTab === "correlation" && (
-        <div className="h-64">
-          <ResponsiveContainer>
-            <ScatterChart>
-              <XAxis dataKey="x" />
-              <YAxis dataKey="y" />
-              <Tooltip />
-              <Scatter data={scatterData} fill="#8b5cf6" />
-            </ScatterChart>
-          </ResponsiveContainer>
+        <div className="h-[400px] flex items-center justify-center p-4 bg-slate-50/50 rounded-xl">
+          {isFetchingCorrelation ? (
+            <div className="flex flex-col items-center justify-center text-slate-500 animate-pulse">
+               <Grid3X3 className="w-8 h-8 mb-4 opacity-50" />
+               <p>Generating correlation heatmap...</p>
+            </div>
+          ) : correlationImg ? (
+            <img 
+              src={correlationImg} 
+              alt="Correlation Heatmap" 
+              className="max-h-full max-w-full object-contain rounded-lg border border-slate-200/60 shadow-sm"
+            />
+          ) : (
+            <p className="text-slate-400">Failed to load correlation heatmap or need more than 2 numeric columns.</p>
+          )}
         </div>
       )}
     </motion.div>

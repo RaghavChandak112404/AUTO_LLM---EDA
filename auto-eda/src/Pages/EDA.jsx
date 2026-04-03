@@ -63,10 +63,11 @@ export default function EDAPage() {
 
         setLoadingStates(prev => ({ ...prev, insights: true }));
 
-
-
         try {
-            setAiInsights("⚠️ AI insights will appear here (LLM integration pending).");
+            const res = await fetch("http://localhost:8000/llm/insights");
+            if (!res.ok) throw new Error("Network response was not ok");
+            const json = await res.json();
+            setAiInsights(json.insights || "Failed to parse insights.");
         } catch (error) {
             toast.error('Failed to generate insights');
             console.error(error);
@@ -80,10 +81,15 @@ export default function EDAPage() {
 
         setLoadingStates(prev => ({ ...prev, recommendations: true }));
 
-
-
         try {
-            setAiInsights("⚠️ AI insights will appear here (LLM integration pending).");
+            const res = await fetch("http://localhost:8000/llm/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question: "Suggest 3 specific machine learning models for this dataset. Identify the exact target column for each, and the features it should use. Explain why it fits the distribution and stats of this data." })
+            });
+            if (!res.ok) throw new Error("Network response was not ok");
+            const json = await res.json();
+            setMlRecommendations(json.reply || "Failed to get recommendations.");
         } catch (error) {
             toast.error('Failed to generate recommendations');
             console.error(error);
@@ -100,7 +106,7 @@ export default function EDAPage() {
 
 
         try {
-            setAiInsights("⚠️ AI insights will appear here (LLM integration pending).");
+            setPythonCode("# Python integration code will appear here (Integration pending).");
         } catch (error) {
             toast.error('Failed to generate code');
             console.error(error);
@@ -109,12 +115,29 @@ export default function EDAPage() {
         }
     }, [data, dataSummary]);
 
-    const handleFileUpload = useCallback((uploadedData) => {
-        setData(uploadedData);
-        setAiInsights(null);
-        setMlRecommendations(null);
-        setPythonCode(null);
-        toast.success('File uploaded successfully!');
+    const handleFileUpload = useCallback(async (uploadedData) => {
+        setIsProcessing(true);
+        try {
+            const formData = new FormData();
+            formData.append("file", uploadedData.rawFile);
+            
+            const res = await fetch("http://localhost:8000/upload", {
+                method: "POST",
+                body: formData
+            });
+            if (!res.ok) throw new Error("Backend upload failed");
+            
+            setData(uploadedData);
+            setAiInsights(null);
+            setMlRecommendations(null);
+            setPythonCode(null);
+            toast.success('File uploaded successfully!');
+        } catch (error) {
+            toast.error('Failed to upload to backend server');
+            console.error(error);
+        } finally {
+            setIsProcessing(false);
+        }
     }, []);
 
     const handleAnalyze = useCallback(() => {

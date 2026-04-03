@@ -63,7 +63,7 @@ export default function FileUploader({ onFileUpload, isProcessing }) {
         });
 
         console.log("FileUploader calling onFileUpload with", { rowsCount: rows.length });
-        onFileUpload({ headers, rows, fileName: file.name, rawText: text });
+        onFileUpload({ headers, rows, fileName: file.name, rawText: text, rawFile: file });
       };
       reader.readAsText(file);
     },

@@ -41,22 +41,25 @@ def _plotly_to_json(fig) -> str:
 # ── 1. Correlation Heatmap ─────────────────────────────────────────────────
 
 def correlation_heatmap(df: pd.DataFrame) -> dict:
-    """Interactive Plotly heatmap of the Pearson correlation matrix."""
+    """Static Seaborn heatmap of the Pearson correlation matrix."""
     numeric_df = df.select_dtypes(include="number")
     if numeric_df.shape[1] < 2:
         return {"error": "Need ≥ 2 numeric columns for a heatmap."}
 
     corr = numeric_df.corr().round(2)
-    fig = px.imshow(
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(
         corr,
-        text_auto=True,
-        color_continuous_scale="RdBu_r",
-        zmin=-1, zmax=1,
-        title="Correlation Heatmap",
-        aspect="auto",
+        annot=True,
+        cmap="coolwarm",
+        vmin=-1, vmax=1,
+        fmt=".2f",
+        ax=ax
     )
-    fig.update_layout(margin=dict(l=40, r=40, t=60, b=40))
-    return {"type": "plotly", "data": _plotly_to_json(fig)}
+    plt.title("Correlation Heatmap", pad=20)
+    plt.tight_layout()
+    encoded = _fig_to_base64(fig)
+    return {"type": "image", "data": encoded}
 
 
 # ── 2. Distribution Plots ──────────────────────────────────────────────────
