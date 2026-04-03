@@ -3,6 +3,7 @@ llm_helper.py — LLM integration (OpenAI GPT) for AUTO LLM + EDA
 """
 
 import os
+import openai
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -83,13 +84,20 @@ def chat_with_eda(
         {"role": "user", "content": f"{context_msg}\n\nQuestion: {user_question}"},
     ]
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        return response.choices[0].message.content.strip()
+    except openai.RateLimitError:
+        return "⚠️ OpenAI quota exceeded. Please add credits to your OpenAI account or update the API key in the backend `.env` file."
+    except openai.AuthenticationError:
+        return "⚠️ Invalid OpenAI API key. Please update OPENAI_API_KEY in the backend `.env` file."
+    except Exception as exc:
+        return f"⚠️ AI analysis unavailable: {exc}"
 
 
 def auto_insights(df_snapshot: str, model: str = "gpt-4o-mini") -> str:
@@ -111,16 +119,23 @@ def auto_insights(df_snapshot: str, model: str = "gpt-4o-mini") -> str:
         f"Dataset summary:\n{truncate_text(df_snapshot, max_chars=3000)}"
     )
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are an expert data analyst."},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=800,
-        temperature=0.4,
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are an expert data analyst."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=800,
+            temperature=0.4,
+        )
+        return response.choices[0].message.content.strip()
+    except openai.RateLimitError:
+        return "⚠️ OpenAI quota exceeded. Please add credits to your OpenAI account or update the API key in the backend `.env` file."
+    except openai.AuthenticationError:
+        return "⚠️ Invalid OpenAI API key. Please update OPENAI_API_KEY in the backend `.env` file."
+    except Exception as exc:
+        return f"⚠️ AI insights unavailable: {exc}"
 
 
 def suggest_visualisations(df_snapshot: str, model: str = "gpt-4o-mini") -> str:
@@ -138,13 +153,20 @@ def suggest_visualisations(df_snapshot: str, model: str = "gpt-4o-mini") -> str:
         f"Dataset summary:\n{truncate_text(df_snapshot, max_chars=3000)}"
     )
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are an expert data visualisation consultant."},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=600,
-        temperature=0.4,
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are an expert data visualisation consultant."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=600,
+            temperature=0.4,
+        )
+        return response.choices[0].message.content.strip()
+    except openai.RateLimitError:
+        return "⚠️ OpenAI quota exceeded. Please add credits to your OpenAI account or update the API key in the backend `.env` file."
+    except openai.AuthenticationError:
+        return "⚠️ Invalid OpenAI API key. Please update OPENAI_API_KEY in the backend `.env` file."
+    except Exception as exc:
+        return f"⚠️ AI suggestions unavailable: {exc}"

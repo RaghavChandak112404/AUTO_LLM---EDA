@@ -207,16 +207,11 @@ def llm_chat(req: ChatRequest):
 
     snapshot = _session.get("snapshot") or eda_text_snapshot(df)
 
-    try:
-        reply = chat_with_eda(
-            user_question=req.question,
-            df_snapshot=snapshot,
-            conversation_history=_session["history"],
-        )
-    except EnvironmentError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM error: {exc}")
+    reply = chat_with_eda(
+        user_question=req.question,
+        df_snapshot=snapshot,
+        conversation_history=_session["history"],
+    )
 
     # Update conversation history
     _session["history"].append({"role": "user", "content": req.question})
@@ -233,10 +228,7 @@ def llm_auto_insights():
     """Generate automatic insights for the uploaded dataset."""
     df = _require_df()
     snapshot = _session.get("snapshot") or eda_text_snapshot(df)
-    try:
-        insights = auto_insights(snapshot)
-    except EnvironmentError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    insights = auto_insights(snapshot)
     return {"insights": insights}
 
 
@@ -245,10 +237,7 @@ def llm_suggest_charts():
     """Ask the LLM to recommend the best visualisations for the dataset."""
     df = _require_df()
     snapshot = _session.get("snapshot") or eda_text_snapshot(df)
-    try:
-        suggestions = suggest_visualisations(snapshot)
-    except EnvironmentError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    suggestions = suggest_visualisations(snapshot)
     return {"suggestions": suggestions}
 
 
