@@ -1,10 +1,9 @@
 """
-llm_helper.py — LLM integration (OpenAI GPT) for AUTO LLM + EDA
+llm_helper.py — LLM integration (Google Gemini) for AUTO LLM + EDA
 """
 
 import os
-import openai
-from openai import OpenAI
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 from eda import eda_text_snapshot
@@ -12,102 +11,117 @@ from utils import truncate_text
 
 load_dotenv()
 
-# ── Client ─────────────────────────────────────────────────────────────────
-_client: OpenAI | None = None
+# ── Client / Model ─────────────────────────────────────────────────────────────
+_model = None
 
 
-def get_client() -> OpenAI | None:
-    global _client
-    if _client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
+def get_model():
+    global _model
+    if _model is None:
+        api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             return None
-        _client = OpenAI(api_key=api_key)
-    return _client
+        genai.configure(api_key=api_key)
+        _model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.3,
+                max_output_tokens=1024,
+            ),
+        )
+    return _model
 
 
-# ── System Prompt ──────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are an expert data analyst assistant specialising in \
-Exploratory Data Analysis (EDA). You help users understand their datasets \
-through clear, insightful explanations.
+# ── System Prompt ──────────────────────────────────────────────────────────────
+SYSTEM_PROMPT = (
+    "You are an expert data analyst assistant specialising in "
+    "Exploratory Data Analysis (EDA). You help users understand their datasets "
+    "through clear, insightful explanations.\n\n"
+    "CRITICAL INSTRUCTIONS:\n"
+    "- You MUST strictly base all insights, recommendations, and suggested machine learning models "
+    "on the exact structure, statistics, datatypes, and columns provided in the dataset snapshot.\n"
+    "- DO NOT provide generic machine learning model suggestions. If you suggest a model, you MUST "
+    "explicitly name the target column from the dataset it would predict, identify the independent "
+    "features it would use, and justify why this specific model is appropriate for the data types "
+    "and distributions provided.\n"
+    "- Avoid generic filler text. Be highly tailored to the specific dataset at hand.\n"
+    "- Use bullet points or short paragraphs for clarity.\n"
+    "- Answer concisely and accurately.\n"
+    "- If the question is unrelated to the dataset, politely redirect.\n"
+)
 
-CRITICAL INSTRUCTIONS:
-- You MUST strictly base all insights, recommendations, and suggested machine learning models on the exact structure, statistics, datatypes, and columns provided in the dataset snapshot.
-- DO NOT provide generic machine learning model suggestions. If you suggest a model, you MUST explicitly name the target column from the dataset it would predict, identify the independent features it would use, and justify why this specific model is appropriate for the data types and distributions provided.
-- Avoid generic filler text. Be highly tailored to the specific dataset at hand.
-- Use bullet points or short paragraphs for clarity.
-- Answer concisely and accurately.
-- If the question is unrelated to the dataset, politely redirect.
-"""
 
-
-# ── Core LLM Call ──────────────────────────────────────────────────────────
+# ── Core LLM Call ──────────────────────────────────────────────────────────────
 
 def chat_with_eda(
     user_question: str,
     df_snapshot: str,
     conversation_history: list[dict] | None = None,
-    model: str = "gpt-4o-mini",
+    model: str = "gemini-1.5-flash",   # kept for API compatibility, ignored
     max_tokens: int = 1024,
     temperature: float = 0.3,
 ) -> str:
     """
-    Send a user question + dataset snapshot to the LLM and return the reply.
+    Send a user question + dataset snapshot to Gemini and return the reply.
 
     Args:
         user_question:        The user's natural-language question.
         df_snapshot:          Text snapshot of the dataset (from eda_text_snapshot).
         conversation_history: Previous [{"role": ..., "content": ...}] turns.
-        model:                OpenAI model name.
+        model:                Ignored — kept for drop-in compatibility.
         max_tokens:           Max tokens in the reply.
-        temperature:          Sampling temperature (lower = more deterministic).
+        temperature:          Sampling temperature.
 
     Returns:
         Assistant reply string.
     """
-    client = get_client()
-    if client is None:
-        return "AI insights are not available. Please set OPENAI_API_KEY in .env file."
+    gemini = get_model()
+    if gemini is None:
+        return "AI insights are not available. Please set GEMINI_API_KEY in the .env file."
 
     history = conversation_history or []
 
-    # Build the context message injected before the user question
+    # Build context message
     context_msg = (
         "Here is a summary of the uploaded dataset:\n\n"
         f"{truncate_text(df_snapshot, max_chars=3000)}\n\n"
         "Now answer the following question based on this dataset."
     )
 
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        *history,
-        {"role": "user", "content": f"{context_msg}\n\nQuestion: {user_question}"},
-    ]
+    # Convert conversation history to Gemini format
+    gemini_history = []
+    for turn in history:
+        role = "user" if turn["role"] == "user" else "model"
+        gemini_history.append({"role": role, "parts": [turn["content"]]})
+
+    # Full prompt = system + context + question
+    full_prompt = (
+        f"{SYSTEM_PROMPT}\n\n"
+        f"{context_msg}\n\n"
+        f"Question: {user_question}"
+    )
 
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return response.choices[0].message.content.strip()
-    except openai.RateLimitError:
-        return "⚠️ OpenAI quota exceeded. Please add credits to your OpenAI account or update the API key in the backend `.env` file."
-    except openai.AuthenticationError:
-        return "⚠️ Invalid OpenAI API key. Please update OPENAI_API_KEY in the backend `.env` file."
+        chat = gemini.start_chat(history=gemini_history)
+        response = chat.send_message(full_prompt)
+        return response.text.strip()
     except Exception as exc:
+        err = str(exc).lower()
+        if "quota" in err or "429" in err or "rate" in err:
+            return "⚠️ Gemini quota exceeded. Please check your usage at https://aistudio.google.com or wait a moment."
+        if "api_key" in err or "403" in err or "401" in err:
+            return "⚠️ Invalid Gemini API key. Please update GEMINI_API_KEY in the backend .env file."
         return f"⚠️ AI analysis unavailable: {exc}"
 
 
-def auto_insights(df_snapshot: str, model: str = "gpt-4o-mini") -> str:
+def auto_insights(df_snapshot: str, model: str = "gemini-1.5-flash") -> str:
     """
     Automatically generate key insights for a dataset without a user question.
     Good for the initial analysis panel.
     """
-    client = get_client()
-    if client is None:
-        return "AI insights are not available. Please set OPENAI_API_KEY in .env file."
+    gemini = get_model()
+    if gemini is None:
+        return "AI insights are not available. Please set GEMINI_API_KEY in the .env file."
 
     prompt = (
         "You are an expert data analyst. Given the following specific dataset summary, "
@@ -120,31 +134,24 @@ def auto_insights(df_snapshot: str, model: str = "gpt-4o-mini") -> str:
     )
 
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are an expert data analyst."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=800,
-            temperature=0.4,
-        )
-        return response.choices[0].message.content.strip()
-    except openai.RateLimitError:
-        return "⚠️ OpenAI quota exceeded. Please add credits to your OpenAI account or update the API key in the backend `.env` file."
-    except openai.AuthenticationError:
-        return "⚠️ Invalid OpenAI API key. Please update OPENAI_API_KEY in the backend `.env` file."
+        response = gemini.generate_content(prompt)
+        return response.text.strip()
     except Exception as exc:
+        err = str(exc).lower()
+        if "quota" in err or "429" in err or "rate" in err:
+            return "⚠️ Gemini quota exceeded. Please check your usage at https://aistudio.google.com or wait a moment."
+        if "api_key" in err or "403" in err or "401" in err:
+            return "⚠️ Invalid Gemini API key. Please update GEMINI_API_KEY in the backend .env file."
         return f"⚠️ AI insights unavailable: {exc}"
 
 
-def suggest_visualisations(df_snapshot: str, model: str = "gpt-4o-mini") -> str:
+def suggest_visualisations(df_snapshot: str, model: str = "gemini-1.5-flash") -> str:
     """
-    Ask the LLM to suggest the most informative visualisations for the dataset.
+    Ask Gemini to suggest the most informative visualisations for the dataset.
     """
-    client = get_client()
-    if client is None:
-        return "AI visualisation suggestions are not available. Please set OPENAI_API_KEY in .env file."
+    gemini = get_model()
+    if gemini is None:
+        return "AI visualisation suggestions are not available. Please set GEMINI_API_KEY in the .env file."
 
     prompt = (
         "Based on the dataset summary below, suggest 3–5 specific visualisations "
@@ -154,19 +161,12 @@ def suggest_visualisations(df_snapshot: str, model: str = "gpt-4o-mini") -> str:
     )
 
     try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are an expert data visualisation consultant."},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=600,
-            temperature=0.4,
-        )
-        return response.choices[0].message.content.strip()
-    except openai.RateLimitError:
-        return "⚠️ OpenAI quota exceeded. Please add credits to your OpenAI account or update the API key in the backend `.env` file."
-    except openai.AuthenticationError:
-        return "⚠️ Invalid OpenAI API key. Please update OPENAI_API_KEY in the backend `.env` file."
+        response = gemini.generate_content(prompt)
+        return response.text.strip()
     except Exception as exc:
+        err = str(exc).lower()
+        if "quota" in err or "429" in err or "rate" in err:
+            return "⚠️ Gemini quota exceeded. Please check your usage at https://aistudio.google.com or wait a moment."
+        if "api_key" in err or "403" in err or "401" in err:
+            return "⚠️ Invalid Gemini API key. Please update GEMINI_API_KEY in the backend .env file."
         return f"⚠️ AI suggestions unavailable: {exc}"

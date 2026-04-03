@@ -27,4 +27,4 @@ Animations: Framer Motion
 Charts: Recharts
 Icons: Lucide React
 Notifications: Sonner
-AI (Planned): LLM APIs (OpenAI / Gemini / etc.)
+AI (Planned): Google Gemini API
