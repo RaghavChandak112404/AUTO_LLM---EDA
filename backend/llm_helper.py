@@ -3,34 +3,43 @@ llm_helper.py — LLM integration (Google Gemini) for AUTO LLM + EDA
 """
 
 import os
-import google.generativeai as genai
 from dotenv import load_dotenv
 
 from eda import eda_text_snapshot
 from utils import truncate_text
 
-load_dotenv()
-
-# ── Client / Model ─────────────────────────────────────────────────────────────
 _model = None
+
 
 
 def get_model():
     global _model
     if _model is None:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return None
-        genai.configure(api_key=api_key)
-        _model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.3,
-                max_output_tokens=1024,
-            ),
-        )
-    return _model
+        try:
+            from dotenv import load_dotenv
+            import google.generativeai as genai
+            import os
 
+            load_dotenv()
+            api_key = os.getenv("GEMINI_API_KEY")
+
+            if not api_key:
+                return None
+
+            genai.configure(api_key=api_key)
+
+            _model = genai.GenerativeModel(
+                model_name="gemini-1.5-flash",
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.3,
+                    max_output_tokens=1024,
+                ),
+            )
+        except Exception as e:
+            print("❌ Gemini init error:", e)
+            return None
+
+    return _model
 
 # ── System Prompt ──────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = (

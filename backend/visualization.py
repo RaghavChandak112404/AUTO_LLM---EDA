@@ -21,6 +21,7 @@ import json
 from utils import summarise_dtypes, safe_json
 
 
+
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _fig_to_base64(fig) -> str:

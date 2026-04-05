@@ -2,7 +2,7 @@
 app_gradio.py — Gradio interface for AUTO LLM + EDA
 Run with: python app_gradio.py
 """
-
+print("Starting Gradio App...")
 import io
 import base64
 import gradio as gr
@@ -229,6 +229,6 @@ with gr.Blocks(title="AUTO LLM + EDA", theme=gr.themes.Soft()) as demo:
         chat_input.submit(chat, inputs=[chat_input, chatbot], outputs=chatbot)
         clear_btn.click(clear_chat, outputs=chatbot)
 
-
+print("Launching UI...")
 if __name__ == "__main__":
-    demo.launch(server_port=7860, share=False)
+    demo.launch(server_port=7860, share=True)
