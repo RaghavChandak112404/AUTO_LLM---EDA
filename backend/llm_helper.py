@@ -9,9 +9,9 @@ from dotenv import load_dotenv
 from eda import eda_text_snapshot
 from utils import truncate_text
 
-_model = None
+_client = None
 
-GEMINI_MODEL = "gemini-1.5-flash"
+OLLAMA_MODEL = "llama3"
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds (doubles each retry)
 MIN_CALL_GAP = 2.5  # minimum seconds between Gemini API calls
@@ -33,34 +33,27 @@ def _rate_limit():
 
 
 
-def get_model():
-    global _model
-    if _model is None:
+def get_client():
+    global _client
+    if _client is None:
         try:
             from dotenv import load_dotenv
-            import google.generativeai as genai
+            from openai import OpenAI
             import os
 
             load_dotenv()
-            api_key = os.getenv("GEMINI_API_KEY")
+            global OLLAMA_MODEL
+            OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 
-            if not api_key:
-                return None
-
-            genai.configure(api_key=api_key)
-
-            _model = genai.GenerativeModel(
-                model_name=GEMINI_MODEL,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.3,
-                    max_output_tokens=1024,
-                ),
+            _client = OpenAI(
+                base_url="http://localhost:11434/v1",
+                api_key="ollama", # required but ignored
             )
         except Exception as e:
-            print("❌ Gemini init error:", e)
+            print("❌ Ollama init error:", e)
             return None
 
-    return _model
+    return _client
 
 # ── System Prompt ──────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = (
@@ -85,7 +78,7 @@ SYSTEM_PROMPT = (
 
 def _call_with_retry(fn, *args, **kwargs):
     """
-    Call a Gemini API function with exponential backoff on quota/rate errors.
+    Call an Ollama API function. Retries if connection fails.
     """
     delay = RETRY_DELAY
     for attempt in range(MAX_RETRIES):
@@ -93,13 +86,13 @@ def _call_with_retry(fn, *args, **kwargs):
             return fn(*args, **kwargs)
         except Exception as exc:
             err = str(exc).lower()
-            is_quota = "quota" in err or "429" in err or "rate" in err or "resource_exhausted" in err
-            if is_quota and attempt < MAX_RETRIES - 1:
-                print(f"⚠️ Gemini rate limit hit. Retrying in {delay}s... (attempt {attempt + 1}/{MAX_RETRIES})")
+            is_retryable = "connection" in err or "503" in err or "timeout" in err
+            if is_retryable and attempt < MAX_RETRIES - 1:
+                print(f"⚠️ Ollama connection issue. Retrying in {delay}s... (attempt {attempt + 1}/{MAX_RETRIES})")
                 time.sleep(delay)
                 delay *= 2  # exponential backoff
             else:
-                raise  # re-raise on last attempt or non-quota errors
+                raise  # re-raise on last attempt or other errors
 
 
 # ── Core LLM Call ──────────────────────────────────────────────────────────────
@@ -126,9 +119,9 @@ def chat_with_eda(
     Returns:
         Assistant reply string.
     """
-    gemini = get_model()
-    if gemini is None:
-        return "AI insights are not available. Please set GEMINI_API_KEY in the .env file."
+    client = get_client()
+    if client is None:
+        return "AI insights are not available. Please ensure Ollama is running and OLLAMA_MODEL is set."
 
     history = conversation_history or []
 
@@ -139,29 +132,31 @@ def chat_with_eda(
         "Now answer the following question based on this dataset."
     )
 
-    # Convert conversation history to Gemini format
-    gemini_history = []
-    for turn in history:
-        role = "user" if turn["role"] == "user" else "model"
-        gemini_history.append({"role": role, "parts": [turn["content"]]})
+    # Convert conversation history to OpenAI format
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": context_msg}
+    ]
 
-    # Full prompt = system + context + question
-    full_prompt = (
-        f"{SYSTEM_PROMPT}\n\n"
-        f"{context_msg}\n\n"
-        f"Question: {user_question}"
-    )
+    for turn in history:
+        role = "user" if turn["role"] == "user" else "assistant"
+        messages.append({"role": role, "content": turn["content"]})
+        
+    messages.append({"role": "user", "content": user_question})
 
     try:
-        chat = gemini.start_chat(history=gemini_history)
-        response = _call_with_retry(chat.send_message, full_prompt)
-        return response.text.strip()
+        response = _call_with_retry(
+            client.chat.completions.create,
+            model=OLLAMA_MODEL,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        return response.choices[0].message.content.strip()
     except Exception as exc:
         err = str(exc).lower()
-        if "quota" in err or "429" in err or "rate" in err:
-            return "⚠️ Gemini quota exceeded. Please check your usage at https://aistudio.google.com or wait a moment."
-        if "api_key" in err or "403" in err or "401" in err:
-            return "⚠️ Invalid Gemini API key. Please update GEMINI_API_KEY in the backend .env file."
+        if "connection" in err:
+            return "⚠️ Cannot connect to Ollama. Is it running on http://localhost:11434?"
         return f"⚠️ AI analysis unavailable: {exc}"
 
 
@@ -170,9 +165,9 @@ def auto_insights(df_snapshot: str, model: str = "gemini-1.5-flash") -> str:
     Automatically generate key insights for a dataset without a user question.
     Good for the initial analysis panel.
     """
-    gemini = get_model()
-    if gemini is None:
-        return "AI insights are not available. Please set GEMINI_API_KEY in the .env file."
+    client = get_client()
+    if client is None:
+        return "AI insights are not available. Please ensure Ollama is running and OLLAMA_MODEL is set."
 
     prompt = (
         "You are an expert data analyst. Given the following specific dataset summary, "
@@ -185,14 +180,17 @@ def auto_insights(df_snapshot: str, model: str = "gemini-1.5-flash") -> str:
     )
 
     try:
-        response = _call_with_retry(gemini.generate_content, prompt)
-        return response.text.strip()
+        response = _call_with_retry(
+            client.chat.completions.create,
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
     except Exception as exc:
         err = str(exc).lower()
-        if "quota" in err or "429" in err or "rate" in err:
-            return "⚠️ Gemini quota exceeded. Please check your usage at https://aistudio.google.com or wait a moment."
-        if "api_key" in err or "403" in err or "401" in err:
-            return "⚠️ Invalid Gemini API key. Please update GEMINI_API_KEY in the backend .env file."
+        if "connection" in err:
+            return "⚠️ Cannot connect to Ollama. Is it running on http://localhost:11434?"
         return f"⚠️ AI insights unavailable: {exc}"
 
 
@@ -200,9 +198,9 @@ def suggest_visualisations(df_snapshot: str, model: str = "gemini-1.5-flash") ->
     """
     Ask Gemini to suggest the most informative visualisations for the dataset.
     """
-    gemini = get_model()
-    if gemini is None:
-        return "AI visualisation suggestions are not available. Please set GEMINI_API_KEY in the .env file."
+    client = get_client()
+    if client is None:
+        return "AI visualisation suggestions are not available. Please ensure Ollama is running and OLLAMA_MODEL is set."
 
     prompt = (
         "Based on the dataset summary below, suggest 3–5 specific visualisations "
@@ -212,14 +210,17 @@ def suggest_visualisations(df_snapshot: str, model: str = "gemini-1.5-flash") ->
     )
 
     try:
-        response = _call_with_retry(gemini.generate_content, prompt)
-        return response.text.strip()
+        response = _call_with_retry(
+            client.chat.completions.create,
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
     except Exception as exc:
         err = str(exc).lower()
-        if "quota" in err or "429" in err or "rate" in err:
-            return "⚠️ Gemini quota exceeded. Please check your usage at https://aistudio.google.com or wait a moment."
-        if "api_key" in err or "403" in err or "401" in err:
-            return "⚠️ Invalid Gemini API key. Please update GEMINI_API_KEY in the backend .env file."
+        if "connection" in err:
+            return "⚠️ Cannot connect to Ollama. Is it running on http://localhost:11434?"
         return f"⚠️ AI suggestions unavailable: {exc}"
 
 
@@ -229,11 +230,11 @@ def ml_recommendations(df_snapshot: str) -> dict:
     Returns a dict with 'models' and 'preprocessing' keys, each containing
     tailored markdown text derived from the actual dataset structure.
     """
-    gemini = get_model()
-    if gemini is None:
+    client = get_client()
+    if client is None:
         return {
-            "models": "AI recommendations are not available. Please set GEMINI_API_KEY in the .env file.",
-            "preprocessing": "AI recommendations are not available. Please set GEMINI_API_KEY in the .env file.",
+            "models": "AI recommendations are not available. Please ensure Ollama is running and OLLAMA_MODEL is set.",
+            "preprocessing": "AI recommendations are not available. Please ensure Ollama is running and OLLAMA_MODEL is set.",
         }
 
     models_prompt = (
@@ -262,14 +263,17 @@ def ml_recommendations(df_snapshot: str) -> dict:
 
     def _call(prompt: str, fallback: str) -> str:
         try:
-            response = _call_with_retry(gemini.generate_content, prompt)
-            return response.text.strip()
+            response = _call_with_retry(
+                client.chat.completions.create,
+                model=OLLAMA_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3
+            )
+            return response.choices[0].message.content.strip()
         except Exception as exc:
             err = str(exc).lower()
-            if "quota" in err or "429" in err or "rate" in err:
-                return "⚠️ Gemini quota exceeded. Please check your usage at https://aistudio.google.com or wait a moment."
-            if "api_key" in err or "403" in err or "401" in err:
-                return "⚠️ Invalid Gemini API key. Please update GEMINI_API_KEY in the backend .env file."
+            if "connection" in err:
+                return "⚠️ Cannot connect to Ollama. Is it running on http://localhost:11434?"
             return f"⚠️ {fallback}: {exc}"
 
     return {
@@ -283,9 +287,9 @@ def generate_code_snippet(df_snapshot: str) -> str:
     Ask Gemini to generate a ready-to-use Python EDA + ML code snippet
     tailored specifically to this dataset's columns and structure.
     """
-    gemini = get_model()
-    if gemini is None:
-        return "AI code generation is not available. Please set GEMINI_API_KEY in the .env file."
+    client = get_client()
+    if client is None:
+        return "AI code generation is not available. Please ensure Ollama is running and OLLAMA_MODEL is set."
 
     prompt = (
         "You are an expert Python data scientist. Based ONLY on the dataset summary below, "
@@ -306,8 +310,13 @@ def generate_code_snippet(df_snapshot: str) -> str:
     )
 
     try:
-        response = _call_with_retry(gemini.generate_content, prompt)
-        text = response.text.strip()
+        response = _call_with_retry(
+            client.chat.completions.create,
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        text = response.choices[0].message.content.strip()
         # Strip markdown code fences if present
         if text.startswith("```"):
             lines = text.split("\n")
@@ -316,8 +325,6 @@ def generate_code_snippet(df_snapshot: str) -> str:
         return text
     except Exception as exc:
         err = str(exc).lower()
-        if "quota" in err or "429" in err or "rate" in err:
-            return "# ⚠️ Gemini quota exceeded. Please check your usage at https://aistudio.google.com or wait a moment."
-        if "api_key" in err or "403" in err or "401" in err:
-            return "# ⚠️ Invalid Gemini API key. Please update GEMINI_API_KEY in the backend .env file."
+        if "connection" in err:
+            return "# ⚠️ Cannot connect to Ollama. Is it running on http://localhost:11434?"
         return f"# ⚠️ Code generation unavailable: {exc}"

@@ -11,8 +11,6 @@ import {
   PieChart,
   Pie,
   Cell,
-  ScatterChart,
-  Scatter,
 } from "recharts";
 import { BarChart3, PieChart as PieChartIcon, Grid3X3 } from "lucide-react";
 
@@ -91,15 +89,42 @@ export default function DataVisualizations({ data }) {
       .slice(0, 10);
   }, [rows, selectedCategorical]);
 
-  const scatterData = useMemo(() => {
+  const correlationMatrix = useMemo(() => {
     if (numericColumns.length < 2) return [];
 
-    return rows
-      .map((row) => ({
-        x: parseFloat(row[numericColumns[0]]),
-        y: parseFloat(row[numericColumns[1]]),
-      }))
-      .filter((d) => !isNaN(d.x) && !isNaN(d.y));
+    const calculatePearson = (validPairs) => {
+      const n = validPairs.length;
+      if (n === 0) return 0;
+      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+      for (let i = 0; i < n; i++) {
+        const {x, y} = validPairs[i];
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumX2 += x * x;
+        sumY2 += y * y;
+      }
+      const numerator = n * sumXY - sumX * sumY;
+      const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+      return denominator === 0 ? 0 : numerator / denominator;
+    };
+
+    const matrix = [];
+    for (let current of numericColumns) {
+      const row = { name: current };
+      for (let other of numericColumns) {
+        const validPairs = rows
+          .map((r) => ({
+            x: parseFloat(r[current]),
+            y: parseFloat(r[other]),
+          }))
+          .filter((p) => !isNaN(p.x) && !isNaN(p.y));
+        
+        row[other] = calculatePearson(validPairs);
+      }
+      matrix.push(row);
+    }
+    return matrix;
   }, [rows, numericColumns]);
 
   return (
@@ -211,15 +236,46 @@ export default function DataVisualizations({ data }) {
 
       {/* Correlation */}
       {activeTab === "correlation" && (
-        <div className="h-64">
-          <ResponsiveContainer>
-            <ScatterChart>
-              <XAxis dataKey="x" />
-              <YAxis dataKey="y" />
-              <Tooltip />
-              <Scatter data={scatterData} fill="#8b5cf6" />
-            </ScatterChart>
-          </ResponsiveContainer>
+        <div className="overflow-auto border rounded-lg max-h-96">
+          <table className="w-full text-sm text-center border-collapse">
+            <thead className="sticky top-0 bg-slate-50 shadow-sm z-10">
+              <tr>
+                <th className="p-2 border"></th>
+                {numericColumns.map((col) => (
+                  <th key={col} className="p-2 border text-xs font-semibold whitespace-nowrap">{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {correlationMatrix.map((row) => (
+                <tr key={row.name}>
+                  <td className="p-2 border font-semibold text-xs text-left sticky left-0 bg-slate-50 z-0 whitespace-nowrap shadow-sm">
+                    {row.name}
+                  </td>
+                  {numericColumns.map((col) => {
+                    const val = row[col];
+                    const alpha = Math.min(Math.abs(val), 1);
+                    // Blue for positive, Red for negative
+                    const color = val > 0 
+                      ? `rgba(59, 130, 246, ${alpha})` 
+                      : `rgba(239, 68, 68, ${alpha})`;
+                    const textColor = alpha > 0.5 ? "white" : "black";
+
+                    return (
+                      <td
+                        key={col}
+                        className="p-3 border text-xs transition-colors hover:brightness-110 cursor-help"
+                        style={{ backgroundColor: color, color: textColor }}
+                        title={`${row.name} ↔ ${col}\nCorrelation: ${val.toFixed(4)}`}
+                      >
+                        {val.toFixed(2)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </motion.div>
