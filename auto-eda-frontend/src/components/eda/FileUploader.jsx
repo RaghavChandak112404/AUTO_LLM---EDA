@@ -63,7 +63,9 @@ export default function FileUploader({ onFileUpload, isProcessing }) {
         });
 
         console.log("FileUploader calling onFileUpload with", { rowsCount: rows.length });
-        onFileUpload({ headers, rows, fileName: file.name, rawText: text });
+        // Pass both the parsed data AND the original File object so the
+        // parent can upload the raw file to the backend for Gemini analysis.
+        onFileUpload({ headers, rows, fileName: file.name, rawText: text }, file);
       };
       reader.readAsText(file);
     },

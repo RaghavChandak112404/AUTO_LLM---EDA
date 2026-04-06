@@ -24,7 +24,7 @@ from visualization import (
     scatter_plot,
     box_plots_grid,
 )
-from llm_helper import chat_with_eda, auto_insights, suggest_visualisations
+from llm_helper import chat_with_eda, auto_insights, suggest_visualisations, ml_recommendations, generate_code_snippet
 from ml_trainer import train_model
 
 # ── App setup ──────────────────────────────────────────────────────────────
@@ -239,6 +239,24 @@ def llm_suggest_charts():
     snapshot = _session.get("snapshot") or eda_text_snapshot(df)
     suggestions = suggest_visualisations(snapshot)
     return {"suggestions": suggestions}
+
+
+@app.get("/llm/recommend-ml", tags=["LLM"])
+def llm_recommend_ml():
+    """Generate dataset-specific ML model and preprocessing recommendations."""
+    df = _require_df()
+    snapshot = _session.get("snapshot") or eda_text_snapshot(df)
+    recs = ml_recommendations(snapshot)
+    return recs  # {"models": "...", "preprocessing": "..."}
+
+
+@app.get("/llm/generate-code", tags=["LLM"])
+def llm_generate_code():
+    """Generate a dataset-specific Python EDA + ML code snippet."""
+    df = _require_df()
+    snapshot = _session.get("snapshot") or eda_text_snapshot(df)
+    code = generate_code_snippet(snapshot)
+    return {"code": code}
 
 
 # ── Session management ─────────────────────────────────────────────────────
