@@ -66,8 +66,8 @@ export default function MLRecommendations({ recommendations, isLoading, onRefres
               <button
                 onClick={() => setActiveTab("models")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm ${activeTab === "models"
-                    ? "bg-blue-600 text-white"
-                    : "bg-blue-100 text-blue-700"
+                  ? "bg-blue-600 text-white"
+                  : "bg-blue-100 text-blue-700"
                   }`}
               >
                 <Lightbulb className="w-4 h-4" />
@@ -77,8 +77,8 @@ export default function MLRecommendations({ recommendations, isLoading, onRefres
               <button
                 onClick={() => setActiveTab("preprocessing")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm ${activeTab === "preprocessing"
-                    ? "bg-blue-600 text-white"
-                    : "bg-blue-100 text-blue-700"
+                  ? "bg-blue-600 text-white"
+                  : "bg-blue-100 text-blue-700"
                   }`}
               >
                 <Wrench className="w-4 h-4" />

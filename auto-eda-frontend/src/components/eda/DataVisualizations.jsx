@@ -12,7 +12,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { BarChart3, PieChart as PieChartIcon, Grid3X3 } from "lucide-react";
+import { BarChart3, PieChart as PieChartIcon, Grid3X3, AlertTriangle, FileQuestion } from "lucide-react";
 
 export default function DataVisualizations({ data }) {
   const COLORS = [
@@ -97,7 +97,7 @@ export default function DataVisualizations({ data }) {
       if (n === 0) return 0;
       let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
       for (let i = 0; i < n; i++) {
-        const {x, y} = validPairs[i];
+        const { x, y } = validPairs[i];
         sumX += x;
         sumY += y;
         sumXY += x * y;
@@ -119,12 +119,51 @@ export default function DataVisualizations({ data }) {
             y: parseFloat(r[other]),
           }))
           .filter((p) => !isNaN(p.x) && !isNaN(p.y));
-        
+
         row[other] = calculatePearson(validPairs);
       }
       matrix.push(row);
     }
     return matrix;
+  }, [rows, numericColumns]);
+
+  const missingData = useMemo(() => {
+    return headers.map(header => {
+      let missingCount = 0;
+      rows.forEach(row => {
+        const v = row[header];
+        if (v === "" || v == null || v === "N/A" || typeof v === "undefined" || (typeof v === "number" && isNaN(v))) {
+          missingCount++;
+        }
+      });
+      return {
+        name: header,
+        percentage: rows.length ? parseFloat(((missingCount / rows.length) * 100).toFixed(2)) : 0,
+        count: missingCount
+      };
+    }).filter(col => col.percentage > 0).sort((a, b) => b.percentage - a.percentage);
+  }, [headers, rows]);
+
+  const outliersData = useMemo(() => {
+    if (!numericColumns.length) return [];
+    return numericColumns.map(col => {
+      const values = rows.map(r => parseFloat(r[col])).filter(v => !isNaN(v));
+      if (!values.length) return { name: col, outliers: 0 };
+
+      const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+      const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+      const stdDev = Math.sqrt(variance);
+
+      if (stdDev === 0) return { name: col, outliers: 0 };
+
+      let outlierCount = 0;
+      values.forEach(v => {
+        const z = Math.abs((v - mean) / stdDev);
+        if (z > 3) outlierCount++;
+      });
+
+      return { name: col, outliers: outlierCount };
+    }).filter(col => col.outliers > 0).sort((a, b) => b.outliers - a.outliers);
   }, [rows, numericColumns]);
 
   return (
@@ -163,6 +202,26 @@ export default function DataVisualizations({ data }) {
           >
             <Grid3X3 className="inline w-4 h-4 mr-1" />
             Correlation
+          </button>
+        )}
+
+        <button
+          onClick={() => setActiveTab("missing")}
+          className={`px-4 py-2 rounded whitespace-nowrap ${activeTab === "missing" ? "bg-violet-600 text-white" : "bg-slate-200"
+            }`}
+        >
+          <FileQuestion className="inline w-4 h-4 mr-1" />
+          Missing Data
+        </button>
+
+        {numericColumns.length > 0 && (
+          <button
+            onClick={() => setActiveTab("outliers")}
+            className={`px-4 py-2 rounded whitespace-nowrap ${activeTab === "outliers" ? "bg-violet-600 text-white" : "bg-slate-200"
+              }`}
+          >
+            <AlertTriangle className="inline w-4 h-4 mr-1" />
+            Outliers
           </button>
         )}
       </div>
@@ -256,8 +315,8 @@ export default function DataVisualizations({ data }) {
                     const val = row[col];
                     const alpha = Math.min(Math.abs(val), 1);
                     // Blue for positive, Red for negative
-                    const color = val > 0 
-                      ? `rgba(59, 130, 246, ${alpha})` 
+                    const color = val > 0
+                      ? `rgba(59, 130, 246, ${alpha})`
                       : `rgba(239, 68, 68, ${alpha})`;
                     const textColor = alpha > 0.5 ? "white" : "black";
 
@@ -276,6 +335,46 @@ export default function DataVisualizations({ data }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Missing Data */}
+      {activeTab === "missing" && (
+        <div className="h-64 flex flex-col items-center justify-center">
+          {missingData.length === 0 ? (
+            <div className="text-slate-500 text-lg flex items-center">
+              <span className="text-2xl mr-2">🎉</span> No missing values found in any column!
+            </div>
+          ) : (
+            <ResponsiveContainer>
+              <BarChart data={missingData} layout="vertical" margin={{ left: 40, right: 20 }}>
+                <XAxis type="number" domain={[0, 100]} tickFormatter={(val) => `${val}%`} />
+                <YAxis dataKey="name" type="category" width={100} />
+                <Tooltip formatter={(value, name, props) => [`${value}% (${props.payload.count} rows)`, "Missing"]} />
+                <Bar dataKey="percentage" fill="#ef4444" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
+
+      {/* Outliers */}
+      {activeTab === "outliers" && (
+        <div className="h-64 flex flex-col items-center justify-center">
+          {outliersData.length === 0 ? (
+            <div className="text-slate-500 text-lg flex items-center">
+              <span className="text-2xl mr-2">🌟</span> No extreme outliers (Z &gt; 3) found in numeric columns!
+            </div>
+          ) : (
+            <ResponsiveContainer>
+              <BarChart data={outliersData}>
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip formatter={(value) => [value, "Outliers"]} />
+                <Bar dataKey="outliers" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       )}
     </motion.div>
